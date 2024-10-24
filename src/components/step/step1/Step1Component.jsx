@@ -105,163 +105,199 @@ const getParentNodeId = (hierarchyData, targetId) => {
   return parentId;
 };
 
-// DynamicAccordionItem 컴포넌트
-const DynamicAccordionItem = ({ 
-  title, 
-  id,
-  isActive,
-  isChecked,
-  isIndeterminate,
-  onToggle,
-  onCheckChange,
-  children,
-  depth = 0 
-}) => {
+const DynamicAccordionItem = ({
+                                title,
+                                id,
+                                isActive,
+                                isChecked,
+                                isIndeterminate,
+                                onToggle,
+                                onCheckChange,
+                                children,
+                                depth = 0
+                              }) => {
   const checkboxRef = React.useRef();
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (checkboxRef.current) {
       checkboxRef.current.indeterminate = isIndeterminate;
     }
   }, [isIndeterminate]);
 
+  const handleCheckboxChange = (e) => {
+    e.stopPropagation(); // 이벤트 버블링 방지
+    onCheckChange(e);
+  };
+
   return (
-    <div className={`check-group title ${isActive ? 'on' : ''}`}>
-      <div className="title-chk" style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '8px',
-        width: '100%',
-        paddingLeft: `${depth * 20}px`
-      }}>
-        <input
-          ref={checkboxRef}
-          type="checkbox"
-          id={id}
-          checked={isChecked}
-          onChange={onCheckChange}
-          className="que-allCheck depth01"
-        />
-        <label htmlFor={id} style={{ width: '100%' }}>
-          <button
-            type="button"
-            className={`dep-btn ${isActive ? 'active' : ''}`}
-            onClick={onToggle}
-            style={{ textAlign: 'left', width: '100%' }}
-          >
-            {title}
-          </button>
-        </label>
-      </div>
-      {children && (
-        <div className="depth02" style={{ 
-          display: isActive ? 'block' : 'none',
-          width: '100%'
+      <div className={`check-group title ${isActive ? 'on' : ''}`}>
+        <div className="title-chk" style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          width: '100%',
+          paddingLeft: `${depth * 20}px`
         }}>
-          {children}
+          <input
+              ref={checkboxRef}
+              type="checkbox"
+              id={id}
+              checked={isChecked}
+              onChange={handleCheckboxChange}
+              className="que-allCheck depth01"
+          />
+          <label htmlFor={id} style={{ width: '100%', cursor: 'pointer' }}>
+            <button
+                type="button"
+                className={`dep-btn ${isActive ? 'active' : ''}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggle();
+                }}
+                style={{ textAlign: 'left', width: '100%' }}
+            >
+              {title}
+            </button>
+          </label>
         </div>
-      )}
-    </div>
+        {children && (
+            <div className="depth02" style={{
+              display: isActive ? 'block' : 'none',
+              width: '100%'
+            }}>
+              {children}
+            </div>
+        )}
+      </div>
   );
 };
 
-// RenderHierarchy 컴포넌트
-// 수정된 RenderHierarchy 컴포넌트
-const RenderHierarchy = ({ 
-  data, 
-  activeNodes, 
-  checkedNodes, 
-  onToggle, 
-  onCheckChange,
-  depth = 0,
-  hierarchyData 
-}) => {
-  return Object.entries(data).map(([key, value]) => {
-    const hasChildren = Object.keys(value.children || {}).length > 0;
-    const nodeId = `node-${value.id}`;
-    
-    // 현재 노드의 모든 자식 노드 ID 가져오기
-    const childNodeIds = hasChildren ? getAllChildNodeIds(value) : [];
-    
-    // 자식 노드들의 체크 상태 확인
-    const checkedChildCount = childNodeIds.filter(id => checkedNodes.includes(id)).length;
-    const isIndeterminate = hasChildren && checkedChildCount > 0 && checkedChildCount < childNodeIds.length;
-    const isChecked = hasChildren ? checkedChildCount === childNodeIds.length : checkedNodes.includes(nodeId);
+// RenderHierarchy 컴포넌트 수정
+const RenderHierarchy = ({
+                           data,
+                           activeNodes,
+                           checkedNodes,
+                           onToggle,
+                           onCheckChange,
+                           depth = 0,
+                           hierarchyData
+                         }) => {
+  // 현재 노드의 모든 하위 노드 ID를 가져오는 함수
+  const getAllChildNodeIds = (node) => {
+    let ids = [`node-${node.id}`];
+    if (node.children) {
+      Object.values(node.children).forEach(child => {
+        ids = [...ids, ...getAllChildNodeIds(child)];
+      });
+    }
+    return ids;
+  };
 
-    const updateParentNodes = (nodeId, newCheckedNodes) => {
-      let currentNodeId = nodeId;
-      while (true) {
-        const parentId = getParentNodeId(hierarchyData, currentNodeId);
-        if (!parentId) break;
-        
-        const parentNode = Object.values(hierarchyData).find(node => `node-${node.id}` === parentId);
-        if (!parentNode) break;
-
-        const parentChildIds = getAllChildNodeIds(parentNode).filter(id => id !== parentId);
-        const anyChildChecked = parentChildIds.some(id => newCheckedNodes.includes(id));
-        
-        if (!anyChildChecked) {
-          newCheckedNodes = newCheckedNodes.filter(id => id !== parentId);
+  // 부모 노드 상태 업데이트 함수
+  const updateParentNodes = (currentNodeId, newCheckedNodes, hierarchyData) => {
+    const getParentNodeId = (data, targetId) => {
+      let parentId = null;
+      const search = (node, target, parent = null) => {
+        if (`node-${node.id}` === target) {
+          parentId = parent;
+          return;
         }
-        
-        currentNodeId = parentId;
-      }
-      return newCheckedNodes;
+        if (node.children) {
+          Object.values(node.children).forEach(child => {
+            search(child, target, `node-${node.id}`);
+          });
+        }
+      };
+
+      Object.values(data).forEach(node => {
+        search(node, targetId);
+      });
+      return parentId;
     };
 
+    let currentId = currentNodeId;
+    let updatedNodes = [...newCheckedNodes];
+
+    while (true) {
+      const parentId = getParentNodeId(hierarchyData, currentId);
+      if (!parentId) break;
+
+      const parentNode = Object.values(hierarchyData).find(node => `node-${node.id}` === parentId);
+      if (!parentNode) break;
+
+      const childIds = getAllChildNodeIds(parentNode);
+      const allChildrenChecked = childIds.every(id => updatedNodes.includes(id));
+
+      if (allChildrenChecked) {
+        if (!updatedNodes.includes(parentId)) {
+          updatedNodes.push(parentId);
+        }
+      } else {
+        updatedNodes = updatedNodes.filter(id => id !== parentId);
+      }
+
+      currentId = parentId;
+    }
+
+    return updatedNodes;
+  };
+
+  return Object.entries(data).map(([key, value]) => {
+    const nodeId = `node-${value.id}`;
+    const hasChildren = value.children && Object.keys(value.children).length > 0;
+
+    // 현재 노드의 모든 자식 노드 ID 가져오기
+    const childNodeIds = hasChildren ? getAllChildNodeIds(value) : [nodeId];
+
+    // 체크 상태 계산
+    const checkedChildCount = childNodeIds.filter(id => checkedNodes.includes(id)).length;
+    const isIndeterminate = hasChildren && checkedChildCount > 0 && checkedChildCount < childNodeIds.length;
+    const isChecked = checkedChildCount === childNodeIds.length;
+
     return (
-      <DynamicAccordionItem
-        key={nodeId}
-        title={value.name}
-        id={nodeId}
-        isActive={activeNodes.includes(nodeId)}
-        isChecked={isChecked}
-        isIndeterminate={isIndeterminate}
-        onToggle={() => onToggle(nodeId)}
-        onCheckChange={(e) => {
-          const newChecked = e.target.checked;
-          let newCheckedNodes = [...checkedNodes];
-          
-          // 현재 노드 처리
-          if (newChecked) {
-            // 체크 시 현재 노드와 모든 자식 노드 체크
-            newCheckedNodes.push(nodeId);
-            if (hasChildren) {
-              const childIds = getAllChildNodeIds(value);
-              childIds.forEach(id => {
-                if (!newCheckedNodes.includes(id)) {
-                  newCheckedNodes.push(id);
-                }
-              });
-            }
-          } else {
-            // 체크 해제 시 현재 노드와 모든 자식 노드 체크 해제
-            newCheckedNodes = newCheckedNodes.filter(id => id !== nodeId);
-            if (hasChildren) {
-              const childIds = getAllChildNodeIds(value);
-              newCheckedNodes = newCheckedNodes.filter(id => !childIds.includes(id));
-            }
-            
-            // 부모 노드들 상태 업데이트
-            newCheckedNodes = updateParentNodes(nodeId, newCheckedNodes);
-          }
-          
-          onCheckChange(newCheckedNodes);
-        }}
-        depth={depth}
-      >
-        {hasChildren && (
-          <RenderHierarchy
-            data={value.children}
-            activeNodes={activeNodes}
-            checkedNodes={checkedNodes}
-            onToggle={onToggle}
-            onCheckChange={onCheckChange}
-            depth={depth + 1}
-            hierarchyData={hierarchyData}
-          />
-        )}
-      </DynamicAccordionItem>
+        <DynamicAccordionItem
+            key={nodeId}
+            title={value.name}
+            id={nodeId}
+            isActive={activeNodes.includes(nodeId)}
+            isChecked={isChecked}
+            isIndeterminate={isIndeterminate}
+            onToggle={() => onToggle(nodeId)}
+            onCheckChange={(e) => {
+              const newChecked = e.target.checked;
+              let newCheckedNodes = [...checkedNodes];
+
+              if (newChecked) {
+                // 체크 시 현재 노드와 모든 하위 노드 체크
+                childNodeIds.forEach(id => {
+                  if (!newCheckedNodes.includes(id)) {
+                    newCheckedNodes.push(id);
+                  }
+                });
+              } else {
+                // 체크 해제 시 현재 노드와 모든 하위 노드 체크 해제
+                newCheckedNodes = newCheckedNodes.filter(id => !childNodeIds.includes(id));
+              }
+
+              // 부모 노드들의 상태 업데이트
+              newCheckedNodes = updateParentNodes(nodeId, newCheckedNodes, hierarchyData);
+
+              onCheckChange(newCheckedNodes);
+            }}
+            depth={depth}
+        >
+          {hasChildren && (
+              <RenderHierarchy
+                  data={value.children}
+                  activeNodes={activeNodes}
+                  checkedNodes={checkedNodes}
+                  onToggle={onToggle}
+                  onCheckChange={onCheckChange}
+                  depth={depth + 1}
+                  hierarchyData={hierarchyData}
+              />
+          )}
+        </DynamicAccordionItem>
     );
   });
 };
