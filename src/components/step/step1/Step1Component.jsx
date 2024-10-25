@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import CommonResource from "../../../util/CommonResource.jsx";
-
+import './inc/css/font.css';
+import './inc/css/reset.css';
+import './inc/css/common.css';
 
 
 
