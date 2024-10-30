@@ -1,11 +1,12 @@
-import React, {useEffect, useState} from "react";
+import React, {useEffect, useRef, useState} from "react";
 import CommonResource from "../../util/CommonResource.jsx";
 import {useMutation, useQueries, useQuery} from "@tanstack/react-query";
 import {
     getBookFromTsherpa,
     getChapterItemImagesFromTsherpa,
     getEvaluationsFromTsherpa,
-    getExamItemImagesFromTsherpa
+    getExamItemImagesFromTsherpa,
+    getSimilarItemsImagesFromTsherpa
 } from "../../api/step2Api.js";
 import useCustomMove from "../../hooks/useCustomMove.jsx";
 import BorderColorOutlinedIcon from "@mui/icons-material/BorderColorOutlined";
@@ -19,9 +20,12 @@ import Step2RightSideComponent from "./Step2RightSideComponent.jsx";
 import ModalComponent from "../common/ModalComponent.jsx";
 import DifficultyCountComponent from "../common/DifficultyCountComponent.jsx";
 import {getDifficultyColor} from "../../util/difficultyColorProvider.js";
+import ErrorReportModal from "../common/ErrorReportModalComponent.jsx";
 
 export default function Step2Component() {
     const dispatch = useDispatch();
+    const itemContainerRef = useRef(null);
+
     const [isProblemOptionsOpen, setIsProblemOptionsOpen] = useState(false);
     const [isSortOptionsOpen, setIsSortOptionsOpen] = useState(false);
     const [selectedOption, setSelectedOption] = useState("문제만 보기");
@@ -39,11 +43,39 @@ export default function Step2Component() {
     const [tempDifficultyCounts, setTempDifficultyCounts] = useState([]);
     const [isConfirmOpen, setIsConfirmOpen] = useState(false);
     const [isSorted, setIsSorted] = useState(false);
-
     const [isModalOpen, setIsModalOpen] = useState(false);
 
+    const [isSimilarPage, setIsSimilarPage] = useState(false);
+    const [similarItems, setSimilarItems] = useState([]);
+    const [questionIndex, setQuestionIndex] = useState(null);
+    const [deletedItems, setDeletedItems] = useState([]);
+    const [noSimilarItemsMessage, setNoSimilarItemsMessage] = useState("");
+    const [isNoSimilarItemsModalOpen, setIsNoSimilarItemsModalOpen] = useState(false);
+    const [isErrorReportOpen, setIsErrorReportOpen] = useState(false);
+
+    const fetchSimilarItems = (itemId, questionIndex) => {
+        getSimilarItemsImagesFromTsherpa(itemId)
+            .then((data) => {
+                if (data.itemList.length === 0) {
+                    setNoSimilarItemsMessage("검색된 유사 문제가 없습니다.");
+                    setIsNoSimilarItemsModalOpen(true);
+                } else {
+                    setSimilarItems(data.itemList);
+                    setIsSimilarPage(true);
+                    setQuestionIndex(questionIndex);
+                    console.log("유사 문제 목록: ", data.itemList);
+                }
+            })
+            .catch((error) => {
+                console.error("유사 문제 가져오기 실패:", error);
+            });
+    };
+
     const handleOpenModal = () => setIsModalOpen(true);
-    const handleCloseModal = () => setIsModalOpen(false);
+    const handleCloseModal = () => setIsModalOpen(false)
+    const handleCloseNoSimilarItemsModal = () => setIsNoSimilarItemsModalOpen(false);
+    const handleOpenErrorReport = () => setIsErrorReportOpen(true);
+    const handleCloseErrorReport = () => setIsErrorReportOpen(false);
 
     const bookId = useSelector((state) => state.bookIdSlice);
     console.log(`교재 ID: ${bookId}`)
@@ -94,12 +126,18 @@ export default function Step2Component() {
     const itemsRequestForm = evaluationsData
         ? {
             activityCategoryList: activityCategoryList,
-            levelCnt: [1, 1, 1, 1, 1],
+            levelCnt: [3, 3, 3, 3, 3],
             minorClassification: [
                 {
                     large: 115401,
                     medium: 11540101,
                     small: 1154010101,
+                    subject: 1154
+                },
+                {
+                    large: 115402,
+                    medium: 11540202,
+                    small: 1154020202,
                     subject: 1154
                 }
             ],
@@ -316,15 +354,95 @@ export default function Step2Component() {
         setIsSortOptionsOpen(false);
     };
 
-    const handleClickMoveToStepOne = () => {
-        console.log('STEP 1 단원 선택');
-        moveToPath('../step1')
+    const handleSimilarPageToggle = (itemId, questionIndex) => {
+        fetchSimilarItems(itemId, questionIndex);
     };
 
-    const handleClickMoveToStepThree = () => {
-        console.log(`STEP 3 시험지 저장 : ${bookId, totalQuestions, itemList}`);
-        dispatch(setExamData({bookId, totalQuestions, groupedItems}));
-        moveToStepWithData('step3', {bookId, groupedItems});
+    const handleDeleteItem = (itemId) => {
+        const itemToDelete = itemList.find((item) => item.itemId === itemId);
+        if (itemToDelete) {
+            const relatedPassage = groupedItems.find(group => group.passageId === itemToDelete.passageId);
+            const passageInfo = relatedPassage ? {
+                passageId: relatedPassage.passageId,
+                passageUrl: relatedPassage.passageUrl
+            } : null;
+
+            setDeletedItems((prevDeletedItems) => {
+                const updatedDeletedItems = [...prevDeletedItems];
+                const existingGroup = updatedDeletedItems.find(group => group.passageId === itemToDelete.passageId);
+
+                if (existingGroup) {
+                    existingGroup.items.push(itemToDelete);
+                } else {
+                    updatedDeletedItems.push({
+                        passageId: itemToDelete.passageId,
+                        passageUrl: passageInfo?.passageUrl,
+                        items: [itemToDelete]
+                    });
+                }
+
+                return updatedDeletedItems;
+            });
+
+            const updatedItemList = itemList.filter((item) => item.itemId !== itemId);
+            setItemList(updatedItemList);
+
+            const updatedGroupedItems = groupedItems.map((group) => ({
+                ...group,
+                items: group.items.filter((item) => item.itemId !== itemId),
+            })).filter((group) => group.items.length > 0);
+
+            setGroupedItems(updatedGroupedItems);
+        }
+    };
+
+    const handleDeletePassage = (passageId) => {
+        const itemsToDelete = itemList.filter((item) => item.passageId === passageId);
+
+        setDeletedItems((prevDeletedItems) => [
+            ...prevDeletedItems,
+            {
+                passageId: passageId,
+                passageUrl: itemsToDelete[0]?.passageUrl || null,
+                items: itemsToDelete,
+            },
+        ]);
+
+        const updatedItemList = itemList.filter((item) => item.passageId !== passageId);
+        setItemList(updatedItemList);
+
+        const updatedGroupedItems = groupedItems.filter((group) => group.passageId !== passageId);
+        setGroupedItems(updatedGroupedItems);
+    };
+
+    const scrollToNewItem = (newItemId) => {
+        const newItemElement = document.getElementById(`question-${newItemId}`);
+        if (newItemElement) {
+            newItemElement.scrollIntoView({behavior: 'smooth', block: 'start'});
+        }
+    };
+
+    const handleAddItem = (newItem) => {
+        setItemList((prevItemList) => {
+            const updatedItemList = [...prevItemList, newItem];
+
+            scrollToNewItem(newItem.itemId);
+
+            return updatedItemList;
+        });
+
+        setDeletedItems((prevDeletedItems) =>
+            prevDeletedItems
+                .map((group) => ({
+                    ...group,
+                    items: group.items.filter((item) => item.itemId !== newItem.itemId),
+                }))
+                .filter((group) => group.items.length > 0)
+        );
+
+        setSimilarItems((prevSimilarItems) =>
+            prevSimilarItems.filter((item) => item.itemId !== newItem.itemId)
+        );
     };
 
     const handleDragEnd = (result) => {
@@ -404,6 +522,17 @@ export default function Step2Component() {
         }
     };
 
+    const handleClickMoveToStepOne = () => {
+        console.log('STEP 1 단원 선택');
+        moveToPath('../step1')
+    };
+
+    const handleClickMoveToStepThree = () => {
+        console.log(`STEP 3 시험지 저장 : ${bookId, totalQuestions, itemList}`);
+        dispatch(setExamData({bookId, totalQuestions, groupedItems}));
+        moveToStepWithData('step3', {bookId, groupedItems});
+    };
+
     return (
         <>
             <CommonResource/>
@@ -422,9 +551,16 @@ export default function Step2Component() {
                 handleClose={handleCloseModal}
                 open={isModalOpen}
             />
-            <div id="wrap" className="full-pop-que">
-                <div className="full-pop-wrap">
-                    <div className="pop-header">
+            <ModalComponent
+                title="검색 결과 없음"
+                content={noSimilarItemsMessage}
+                handleClose={handleCloseNoSimilarItemsModal}
+                open={isNoSimilarItemsModalOpen}
+            />
+            <ErrorReportModal isOpen={isErrorReportOpen} onClose={handleCloseErrorReport} />
+                <div id="wrap" className="full-pop-que">
+                    <div className="full-pop-wrap">
+                        <div className="pop-header">
                         <ul className="title">
                             <li>STEP 1 단원선택</li>
                             <li className="active">STEP 2 문항 편집</li>
@@ -547,7 +683,10 @@ export default function Step2Component() {
                                                                 width: "22px",
                                                                 height: "22px",
                                                                 fontSize: "16px"
-                                                            }}></button>
+                                                            }}
+                                                                    onClick={() => handleDeletePassage(group.passageId)}
+                                                            >
+                                                            </button>
                                                             <div className="passage" style={{
                                                                 border: "1px solid #ccc",
                                                                 borderRadius: "8px",
@@ -577,11 +716,14 @@ export default function Step2Component() {
                                                                     </div>
                                                                 </div>
                                                                 <div className="btn-wrap">
+                                                                    <button type="button" className="btn-error pop-btn"
+                                                                            onClick={handleOpenErrorReport}></button>
+
                                                                     <button type="button"
-                                                                            className="btn-error pop-btn"
-                                                                            data-pop="error-report-pop"></button>
-                                                                    <button type="button"
-                                                                            className="btn-delete"></button>
+                                                                            className="btn-delete"
+                                                                            onClick={() => handleDeleteItem(item.itemId)}
+                                                                    >
+                                                                    </button>
                                                                 </div>
                                                             </div>
                                                             <div className="view-que">
@@ -645,8 +787,11 @@ export default function Step2Component() {
                                                                         </div>
                                                                     )}
                                                                     <div className="data-area type01">
-                                                                        <button type="button"
-                                                                                className="btn-similar-que btn-default">
+                                                                        <button
+                                                                            type="button"
+                                                                            className="btn-similar-que btn-default"
+                                                                            onClick={() => handleSimilarPageToggle(item.itemId, itemList.indexOf(item) + 1)}
+                                                                        >
                                                                             <i className="similar"></i> 유사 문제
                                                                         </button>
                                                                     </div>
@@ -672,7 +817,16 @@ export default function Step2Component() {
                                     />
                                 </div>
                                 <div className="cnt-box type01">
-                                    <Step2RightSideComponent itemList={itemList} onDragEnd={handleDragEnd}/></div>
+                                    <Step2RightSideComponent
+                                        itemList={itemList}
+                                        onDragEnd={handleDragEnd}
+                                        onShowSimilar={(item) => handleSimilarPageToggle(item, itemList.indexOf(item) + 1)}
+                                        questionIndex={questionIndex}
+                                        similarItems={similarItems}
+                                        deletedItems={deletedItems}
+                                        onAddItem={handleAddItem}
+                                    />
+                                </div>
                             </div>
                         </div>
                     </div>

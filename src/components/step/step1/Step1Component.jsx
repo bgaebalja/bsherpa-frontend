@@ -439,6 +439,16 @@ const Step1Component = () => {
         .catch((error) => {
           console.error('Error loading evaluation:', error);
         });
+    axios.get(`https://bsherpa.duckdns.org/books/external/evaluations?subjectId=${bookId}`)
+      .then((response) => {
+        console.log('Evaluation Response:', response.data);
+        if (response.data.evaluationList) {
+          setEvaluation(response.data.evaluationList);
+        }
+      })
+      .catch((error) => {
+        console.error('Error loading evaluation:', error);
+      });
   }, [bookId]);
 
   // 챕터 데이터 로드
@@ -446,6 +456,10 @@ const Step1Component = () => {
     axios.post(`http://localhost:8080/step1/chapters/${bookId}`)
         .then((response) => {
           console.log('Chapter Response:', response.data);
+    axios.post(`https://bsherpa.duckdns.org/step1/chapters/${bookId}`)
+      .then((response) => {
+        console.log('Chapter Response:', response.data);
+        if (response.data.chapterList) {
           const transformed = transformData(response.data.chapterList);
 
           // 챕터 데이터 설정
